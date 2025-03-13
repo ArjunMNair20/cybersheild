@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
@@ -27,11 +28,22 @@ func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) 
 
 // StoreMetadata adds new metadata to the world state with given details
 func (s *SmartContract) StoreMetadata(ctx contractapi.TransactionContextInterface, key string, value string) error {
+	clientID, err := ctx.GetClientIdentity().GetID()
+	if err != nil {
+		return fmt.Errorf("failed to get client identity: %v", err)
+	}
+
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return fmt.Errorf("failed to get transaction timestamp: %v", err)
+	}
+	timestamp := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).String()
+
 	metadata := Metadata{
 		Key:       key,
 		Value:     value,
-		Owner:     ctx.GetClientIdentity().GetID(),
-		Timestamp: ctx.GetStub().GetTxTimestamp().String(),
+		Owner:     clientID,
+		Timestamp: timestamp,
 	}
 
 	metadataJSON, err := json.Marshal(metadata)
@@ -71,11 +83,22 @@ func (s *SmartContract) UpdateMetadata(ctx contractapi.TransactionContextInterfa
 		return fmt.Errorf("the metadata %s does not exist", key)
 	}
 
+	clientID, err := ctx.GetClientIdentity().GetID()
+	if err != nil {
+		return fmt.Errorf("failed to get client identity: %v", err)
+	}
+
+	txTimestamp, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return fmt.Errorf("failed to get transaction timestamp: %v", err)
+	}
+	timestamp := time.Unix(txTimestamp.Seconds, int64(txTimestamp.Nanos)).String()
+
 	metadata := Metadata{
 		Key:       key,
 		Value:     value,
-		Owner:     ctx.GetClientIdentity().GetID(),
-		Timestamp: ctx.GetStub().GetTxTimestamp().String(),
+		Owner:     clientID,
+		Timestamp: timestamp,
 	}
 
 	metadataJSON, err := json.Marshal(metadata)
@@ -119,4 +142,4 @@ func main() {
 	if err := chaincode.Start(); err != nil {
 		fmt.Printf("Error starting metadata chaincode: %v", err)
 	}
-} 
+}

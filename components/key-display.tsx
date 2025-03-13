@@ -17,12 +17,13 @@ export function KeyDisplay({ label, value, type }: KeyDisplayProps) {
     if (!key) return false
     
     const publicKeyPattern = /^-----BEGIN PUBLIC KEY-----\n[A-Za-z0-9+/=\n]+-----END PUBLIC KEY-----$/
-    const privateKeyPattern = /^-----BEGIN RSA PRIVATE KEY-----\n[A-Za-z0-9+/=\n]+-----END RSA PRIVATE KEY-----$/
+    const privateKeyPattern = /^-----BEGIN PRIVATE KEY-----\n[A-Za-z0-9+/=\n]+-----END PRIVATE KEY-----$/
     
+    const trimmedKey = key.trim()
     if (type === 'public') {
-      return publicKeyPattern.test(key.trim())
+      return publicKeyPattern.test(trimmedKey)
     } else {
-      return privateKeyPattern.test(key.trim())
+      return privateKeyPattern.test(trimmedKey)
     }
   }
 
@@ -57,6 +58,7 @@ export function KeyDisplay({ label, value, type }: KeyDisplayProps) {
   }
 
   if (!isValidKey(value)) {
+    console.error(`Invalid ${type} key format:`, value)
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />

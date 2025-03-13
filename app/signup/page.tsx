@@ -10,16 +10,9 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAuth } from "@/contexts/auth-context"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { generateAndStoreKeys } from "@/lib/key-service"
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from "@/lib/supabase-config"
 
 const PRIVATE_KEY_STORAGE_KEY = "cybershield_private_key"
-
-// Create Supabase client once, outside component
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface PasswordRequirement {
   text: string;
@@ -134,8 +127,7 @@ export default function SignupPage() {
         email,
         password,
         options: {
-          emailRedirectTo: redirectTo,
-          data: { email_confirm: true }
+          emailRedirectTo: redirectTo
         }
       })
 
@@ -145,25 +137,17 @@ export default function SignupPage() {
         throw new Error("No user data returned from signup")
       }
 
-      // Show success message
+      // Show success message and redirect to login page
       setError({
-        message: "Account created! Please check your email (including spam folder) for a verification link from Supabase. " +
-                "The email will be from 'noreply@mail.app.supabase.io'. " +
-                "You must verify your email before accessing the dashboard.",
+        message: "Account created! Please check your email (including spam folder) for a verification link. " +
+                "You will be redirected to the login page.",
         type: 'success'
       })
 
-      // Generate and store keys if session exists
-      if (signUpData.session) {
-        try {
-          const keys = await generateAndStoreKeys(email)
-          if (keys?.privateKey) {
-            localStorage.setItem(PRIVATE_KEY_STORAGE_KEY, keys.privateKey)
-          }
-        } catch (keyError: any) {
-          console.error("Key generation error:", keyError)
-        }
-      }
+      // Wait for 3 seconds before redirecting to login
+      setTimeout(() => {
+        router.push('/login')
+      }, 3000)
 
     } catch (err: any) {
       console.error("Signup error:", err)
@@ -174,7 +158,7 @@ export default function SignupPage() {
     } finally {
       setLoading(false)
     }
-  }, [formState, allRequirementsMet])
+  }, [formState, allRequirementsMet, router])
 
   return (
     <div className="min-h-screen flex items-center justify-center cyber-background cyber-noise p-4">

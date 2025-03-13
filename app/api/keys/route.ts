@@ -22,28 +22,39 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    // Get the public key
-    const { data, error } = await supabase
+    // First try user_profiles table
+    const { data: profileData, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('public_key')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (profileData?.public_key) {
+      return NextResponse.json({ publicKey: profileData.public_key });
+    }
+
+    // If not found in user_profiles, try user_keys table
+    const { data: keyData, error: keyError } = await supabase
       .from('user_keys')
       .select('public_key')
       .eq('email', email)
       .maybeSingle();
 
-    if (error) {
-      console.error('Error fetching public key:', error);
-      if (error.code === 'PGRST116') {
-        return NextResponse.json({ error: 'No public key found for this email' }, { status: 404 });
-      }
+    if (keyError) {
+      console.error('Error fetching public key:', { profileError, keyError });
       return NextResponse.json({ error: 'Failed to fetch public key' }, { status: 500 });
     }
 
-    if (!data) {
+    if (!keyData?.public_key) {
       return NextResponse.json({ error: 'No public key found for this email' }, { status: 404 });
     }
 
-    return NextResponse.json({ publicKey: data.public_key });
+    return NextResponse.json({ publicKey: keyData.public_key });
   } catch (error) {
     console.error('Error in /api/keys:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 500 });
   }
 } 

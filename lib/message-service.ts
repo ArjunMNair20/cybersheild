@@ -1,8 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 import { storeMessageMetadata, getMessageMetadata, updateMessageStatus } from "./blockchain-service"
+import { supabase } from "./supabase-config"
 
-const supabase = createClient(
+const supabaseClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
@@ -23,141 +24,145 @@ export interface Message {
   encrypted_content: string;
   created_at: string;
   blockchain_metadata?: BlockchainMetadata
+  local?: boolean // Flag to indicate if message is from local storage
 }
 
 // Local storage key for messages
 const MESSAGES_STORAGE_KEY = "cybershield_messages"
 
 // Get messages from local storage
-export function getLocalMessages(): Message[] {
+function getLocalMessages(): Message[] {
   try {
-    return JSON.parse(localStorage.getItem(MESSAGES_STORAGE_KEY) || "[]")
+    const messages = localStorage.getItem(MESSAGES_STORAGE_KEY)
+    return messages ? JSON.parse(messages) : []
   } catch (error) {
-    console.error("Error getting messages from local storage:", error)
+    console.error("Error reading from local storage:", error)
     return []
   }
 }
 
 // Save messages to local storage
-export function saveLocalMessages(messages: Message[]) {
-  localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(messages))
-}
-
-// Add a message to local storage
-export function addLocalMessage(message: Message) {
-  const messages = getLocalMessages()
-  messages.unshift(message) // Add to beginning of array
-  saveLocalMessages(messages)
-}
-
-// Try to save message to Supabase and blockchain
-export async function saveMessage(message: Omit<Message, 'id' | 'created_at'>): Promise<Message> {
+function saveLocalMessages(messages: Message[]) {
   try {
-    const messageId = uuidv4();
-    const timestamp = new Date().toISOString();
-
-    // Save message to Supabase
-    const { data, error } = await supabase
-      .from('messages')
-      .insert([
-        {
-          id: messageId,
-          sender_email: message.sender_email,
-          recipient_email: message.recipient_email,
-          encrypted_content: message.encrypted_content,
-          created_at: timestamp,
-        },
-      ])
-      .select()
-      .single();
-
-    if (error) {
-      throw error;
-    }
-
-    // Store metadata in blockchain
-    try {
-      await fetch('/api/blockchain', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'store',
-          messageId,
-          metadata: {
-            sender_email: message.sender_email,
-            recipient_email: message.recipient_email,
-            timestamp,
-            status: 'sent',
-          },
-        }),
-      });
-    } catch (error) {
-      console.error('Failed to store metadata in blockchain:', error);
-      // Continue even if blockchain storage fails
-    }
-
-    return data;
+    localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(messages))
   } catch (error) {
-    console.error('Error saving message:', error);
-    throw new Error('Failed to save message');
+    console.error("Error saving to local storage:", error)
   }
 }
 
-// Get messages for a user, combining Supabase, local storage, and blockchain metadata
+// Add a message to local storage
+function addLocalMessage(message: Message) {
+  try {
+    const messages = getLocalMessages()
+    messages.unshift({ ...message, local: true })
+    saveLocalMessages(messages)
+  } catch (error) {
+    console.error("Error adding message to local storage:", error)
+  }
+}
+
+// Save message to Supabase with local storage fallback
+export async function saveMessage(message: Omit<Message, 'id' | 'created_at'>): Promise<Message> {
+  try {
+    const messageId = uuidv4()
+    const timestamp = new Date().toISOString()
+    
+    const newMessage = {
+      id: messageId,
+      sender_email: message.sender_email,
+      recipient_email: message.recipient_email,
+      encrypted_content: message.encrypted_content,
+      created_at: timestamp
+    }
+
+    // Try to save to Supabase
+    const { data, error } = await supabaseClient
+      .from('messages')
+      .insert([newMessage])
+      .select()
+      .single()
+
+    if (error) {
+      // If Supabase fails, save to local storage
+      console.warn("Failed to save to Supabase, falling back to local storage")
+      addLocalMessage(newMessage)
+      return { ...newMessage, local: true }
+    }
+
+    return data
+  } catch (error) {
+    console.error("Error in saveMessage:", error)
+    // In case of any error, save to local storage
+    const localMessage = {
+      id: uuidv4(),
+      sender_email: message.sender_email,
+      recipient_email: message.recipient_email,
+      encrypted_content: message.encrypted_content,
+      created_at: new Date().toISOString(),
+      local: true
+    }
+    addLocalMessage(localMessage)
+    return localMessage
+  }
+}
+
+// Get messages for a user from both Supabase and local storage
 export async function getMessagesForUser(email: string): Promise<{ received: Message[]; sent: Message[] }> {
   try {
-    // Get received messages
-    const { data: receivedData, error: receivedError } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('recipient_email', email)
-      .order('created_at', { ascending: false });
+    // Initialize with local messages
+    let received: Message[] = []
+    let sent: Message[] = []
 
-    if (receivedError) {
-      throw receivedError;
+    // Try to get messages from Supabase
+    try {
+      // Get received messages
+      const { data: receivedData, error: receivedError } = await supabaseClient
+        .from('messages')
+        .select('*')
+        .eq('recipient_email', email)
+        .order('created_at', { ascending: false })
+
+      if (!receivedError && receivedData) {
+        received = receivedData
+      }
+
+      // Get sent messages
+      const { data: sentData, error: sentError } = await supabaseClient
+        .from('messages')
+        .select('*')
+        .eq('sender_email', email)
+        .order('created_at', { ascending: false })
+
+      if (!sentError && sentData) {
+        sent = sentData
+      }
+    } catch (error) {
+      console.warn("Failed to fetch messages from Supabase:", error)
     }
 
-    // Get sent messages
-    const { data: sentData, error: sentError } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('sender_email', email)
-      .order('created_at', { ascending: false });
+    // Get local messages
+    const localMessages = getLocalMessages()
+    const localReceived = localMessages.filter(m => m.recipient_email === email)
+    const localSent = localMessages.filter(m => m.sender_email === email)
 
-    if (sentError) {
-      throw sentError;
-    }
+    // Combine and sort messages
+    received = [...received, ...localReceived].sort((a, b) => 
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
+    sent = [...sent, ...localSent].sort((a, b) => 
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
 
-    // For each message, try to get blockchain metadata
-    const enrichMessages = async (messages: Message[]) => {
-      return Promise.all(
-        messages.map(async (message) => {
-          try {
-            const response = await fetch(`/api/blockchain?messageId=${message.id}`);
-            const { metadata } = await response.json();
-            return { ...message, metadata };
-          } catch (error) {
-            console.error('Failed to fetch blockchain metadata:', error);
-            return message;
-          }
-        })
-      );
-    };
-
-    const [enrichedReceived, enrichedSent] = await Promise.all([
-      enrichMessages(receivedData),
-      enrichMessages(sentData),
-    ]);
-
-    return {
-      received: enrichedReceived,
-      sent: enrichedSent,
-    };
+    return { received, sent }
   } catch (error) {
-    console.error('Error fetching messages:', error);
-    throw new Error('Failed to fetch messages');
+    console.error("Error in getMessagesForUser:", error)
+    
+    // If everything fails, return only local messages
+    const localMessages = getLocalMessages()
+    return {
+      received: localMessages.filter(m => m.recipient_email === email),
+      sent: localMessages.filter(m => m.sender_email === email)
+    }
   }
 }
 

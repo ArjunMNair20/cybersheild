@@ -47,40 +47,39 @@ export default function DashboardPage() {
   const router = useRouter()
   const { user, signOut, getPrivateKeyLocally } = useAuth()
 
+  // Handle authentication check
   useEffect(() => {
     if (!user) {
       router.push("/login")
-      return
     }
+  }, [user, router])
 
-    // Get private key from local storage
-    const userPrivateKey = getPrivateKeyLocally()
-    if (userPrivateKey) {
-      setPrivateKey(userPrivateKey)
-    }
+  // Handle data fetching
+  useEffect(() => {
+    if (!user?.email) return
 
-    // Get user's public key
-    const fetchUserPublicKey = async () => {
-      if (user.email) {
-        try {
-          const response = await fetch(`/api/keys?email=${user.email}`)
-          const data = await response.json()
-          if (data.publicKey) {
-            setUserPublicKey(data.publicKey)
-          }
-        } catch (error) {
-          console.error('Error fetching public key:', error)
-        }
-      }
-    }
-    fetchUserPublicKey()
-
-    const fetchMessages = async () => {
+    const initializeDashboard = async () => {
       try {
-        setLoading(true)
-        if (!user.email) return
+        // Get private key from local storage
+        const userPrivateKey = getPrivateKeyLocally()
+        if (userPrivateKey) {
+          setPrivateKey(userPrivateKey)
+        }
 
-        const { received, sent } = await getMessagesForUser(user.email)
+        // Get user's public key
+        const email = user.email // Store email to ensure it's defined
+        if (!email) {
+          throw new Error("User email is undefined")
+        }
+
+        const response = await fetch(`/api/keys?email=${email}`)
+        const data = await response.json()
+        if (data.publicKey) {
+          setUserPublicKey(data.publicKey)
+        }
+
+        // Get messages
+        const { received, sent } = await getMessagesForUser(email)
 
         // Check if we're using local storage
         if (received.some((msg) => "local" in msg) || sent.some((msg) => "local" in msg)) {
@@ -90,14 +89,15 @@ export default function DashboardPage() {
         setReceivedMessages(received)
         setSentMessages(sent)
       } catch (error) {
-        console.error("Error fetching messages:", error)
+        console.error("Error initializing dashboard:", error)
         setUsingLocalStorage(true)
       } finally {
         setLoading(false)
       }
     }
-    fetchMessages()
-  }, [user, router, getPrivateKeyLocally])
+
+    initializeDashboard()
+  }, [user, getPrivateKeyLocally])
 
   const fetchRecipientPublicKey = async () => {
     if (!recipientEmail) {
@@ -145,7 +145,7 @@ export default function DashboardPage() {
       const encryptedContent = encryptMessage(messageContent, recipientPublicKey)
 
       // Save message
-      const result = await saveMessage({
+      await saveMessage({
         sender_email: user.email,
         recipient_email: recipientEmail,
         encrypted_content: encryptedContent,
@@ -190,7 +190,7 @@ export default function DashboardPage() {
   }
 
   const handleRefreshMessages = async () => {
-    if (!user || !user.email) return
+    if (!user?.email) return
 
     setLoading(true)
     try {
@@ -205,46 +205,17 @@ export default function DashboardPage() {
   }
 
   const handleLogout = async () => {
-    await signOut()
-    router.push("/login")
+    try {
+      await signOut()
+      router.push("/login")
+    } catch (error) {
+      console.error("Error during logout:", error)
+    }
   }
 
-  const storeMetadata = async () => {
-    if (!user?.email) return;
-    
-    try {
-      setLoading(true);
-      const response = await fetch('/api/blockchain', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'store',
-          messageId,
-          metadata: {
-            ...metadata,
-            sender_email: user.email,
-          },
-        }),
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        console.log('Metadata stored successfully');
-      } else {
-        console.error('Failed to store metadata');
-      }
-    } catch (error) {
-      console.error('Error storing metadata:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // If not authenticated, render nothing while redirecting
   if (!user) {
-    router.push("/login");
-    return null;
+    return null
   }
 
   return (

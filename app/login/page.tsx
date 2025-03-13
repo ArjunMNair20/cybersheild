@@ -1,8 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useCallback, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Shield, Lock, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,7 @@ interface FormState {
 
 interface FormError {
   message: string;
-  type: 'error' | 'info';
+  type: 'error' | 'info' | 'success';
 }
 
 const initialFormState: FormState = {
@@ -31,7 +31,26 @@ export default function LoginPage() {
   const [error, setError] = useState<FormError | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { signIn } = useAuth()
+
+  // Check URL parameters for messages
+  useEffect(() => {
+    const message = searchParams.get('message')
+    const errorMsg = searchParams.get('error')
+    
+    if (message) {
+      setError({
+        message,
+        type: 'success'
+      })
+    } else if (errorMsg) {
+      setError({
+        message: errorMsg,
+        type: 'error'
+      })
+    }
+  }, [searchParams])
 
   // Handle form input changes
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,7 +60,7 @@ export default function LoginPage() {
       [name]: value
     }))
     // Clear error when user starts typing
-    if (error) setError(null)
+    if (error?.type === 'error') setError(null)
   }, [error])
 
   // Handle login process
@@ -134,6 +153,8 @@ export default function LoginPage() {
                 <div className={`p-2 border rounded text-sm ${
                   error.type === 'error'
                     ? 'bg-destructive/10 border-destructive/20 text-destructive'
+                    : error.type === 'success'
+                    ? 'bg-green-500/10 border-green-500/20 text-green-500'
                     : 'bg-primary/10 border-primary/20 text-primary'
                 }`}>
                   {error.message}
